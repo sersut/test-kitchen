@@ -108,7 +108,13 @@ module Kitchen
       end
 
       def install_command
-        "sudo /bin/sh #{File.join(config[:root_path], 'installer.sh')}"
+        # TODO: We should check use_sudo? in here
+        if powershell_shell?
+          # TODO: Is there a preferred approach to executing Powershell.exe?
+          "Powershell.exe #{remote_installer_script_path}"
+        else
+          "sudo /bin/sh #{remote_installer_script_path}"
+        end
       end
 
       private
@@ -117,7 +123,7 @@ module Kitchen
       # @api private
       def prepare_installer_script
         return unless config[:require_chef_omnibus] || config[:product_name]
-        install_script_path = File.join(sandbox_path, 'installer.sh')
+        install_script_path = File.join(sandbox_path, installer_script_name)
 
         File.open(install_script_path, "wb") do |file|
           file.write(install_script_contents)
@@ -279,7 +285,9 @@ module Kitchen
             product_name: config[:product_name],
             product_version: config[:product_version],
             channel: config[:channel].to_sym || :stable
-          })
+          }.tap do |opts|
+            opts[:shell_type] = :ps1 if powershell_shell?
+          end)
           config[:chef_omnibus_root] = installer.root
           installer.install_command
         elsif config[:require_chef_omnibus]
@@ -289,6 +297,23 @@ module Kitchen
           config[:chef_omnibus_root] = installer.root
           installer.install_command
         end
+      end
+
+      # Generates installer script file name with extension based on type.
+      #
+      # @return [String] installer file name
+      # @api private
+      def installer_script_name
+        "installer.#{powershell_shell? ? "ps1" : "sh"}"
+      end
+
+      # Generates the expected file path of the installer script on the machine
+      # instance.
+      #
+      # @return [String] installer file path based on script type
+      # @api private
+      def remote_installer_script_path
+        File.join(config[:root_path], installer_script_name)
       end
     end
   end
