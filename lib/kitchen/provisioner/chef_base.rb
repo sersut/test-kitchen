@@ -26,6 +26,7 @@ require "kitchen/provisioner/chef/common_sandbox"
 require "kitchen/provisioner/chef/librarian"
 require "kitchen/util"
 require "mixlib/install"
+require "mixlib/install/script_generator"
 
 module Kitchen
 
@@ -86,6 +87,7 @@ module Kitchen
       # (see Base#create_sandbox)
       def create_sandbox
         super
+        prepare_installer_script
         Chef::CommonSandbox.new(config, sandbox_path, instance).populate
       end
 
@@ -105,18 +107,27 @@ module Kitchen
         shell_code_from_file(vars, "chef_base_init_command")
       end
 
-      # (see Base#install_command)
       def install_command
-        return unless config[:require_chef_omnibus]
-
-        version = config[:require_chef_omnibus].to_s.downcase
-
-        installer = Mixlib::Install.new(version, powershell_shell?, install_options)
-        config[:chef_omnibus_root] = installer.root
-        installer.install_command
+        # TODO: We should check use_sudo? in here
+        if powershell_shell?
+          "Powershell.exe #{installer_script_path}"
+        else
+          "sudo /bin/sh #{installer_script_path}"
+        end
       end
 
       private
+
+      # Prepares the installer script under the sandbox
+      # @api private
+      def prepare_installer_script
+        return unless config[:require_chef_omnibus] || config[:product_name]
+        install_script_path = File.join(sandbox_path, installer_script_name)
+
+        File.open(install_script_path, "wb") do |file|
+          file.write(install_script_contents)
+        end
+      end
 
       # @return [Hash] an option hash for the install commands
       # @api private
@@ -259,6 +270,40 @@ module Kitchen
           %{$env:PATH},
           %{[System.Environment]::GetEnvironmentVariable("PATH","Machine")\n\n}
         ].join(" = ")
+      end
+
+      # @return [String] contents of the install script
+      # @api private
+      def install_script_contents
+        return unless config[:require_chef_omnibus] || config[:product_name]
+
+        # by default require_chef_omnibus is set to true. Check config[:product_name] first
+        # so that we can use it if configured.
+        if config[:product_name]
+          installer = Mixlib::Install.new({
+            product_name: config[:product_name],
+            product_version: config[:product_version],
+            channel: config[:channel].to_sym || :stable
+          }.tap do |opts|
+            opts[:shell_type] = :ps1 if powershell_shell?
+          end)
+          config[:chef_omnibus_root] = installer.root
+          installer.install_command
+        elsif config[:require_chef_omnibus]
+          version = config[:require_chef_omnibus].to_s.downcase
+
+          installer = Mixlib::Install::ScriptGenerator.new(version, powershell_shell?, install_options)
+          config[:chef_omnibus_root] = installer.root
+          installer.install_command
+        end
+      end
+
+      def installer_script_name
+        "installer.#{powershell_shell? ? "ps1" : "sh"}"
+      end
+
+      def installer_script_path
+        File.join(config[:root_path], installer_script_name)
       end
     end
   end
