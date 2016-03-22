@@ -287,6 +287,7 @@ module Kitchen
             channel: config[:channel].to_sym || :stable
           }.tap do |opts|
             opts[:shell_type] = :ps1 if powershell_shell?
+            opts[:architecture] = config[:architecture] if config[:architecture]
           end)
           config[:chef_omnibus_root] = installer.root
           installer.install_command
